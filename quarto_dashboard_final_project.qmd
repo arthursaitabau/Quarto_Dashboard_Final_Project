@@ -255,7 +255,7 @@ malaria_choropleth = px.choropleth(
     color="malaria_deaths",
     hover_name="country",
     animation_frame="year",  # Add animation by year
-    title="Global Malaria Deaths by Country Over Time",
+    title="Global Malaria Deaths by Country 1990-2006",
     color_continuous_scale="Blues",
     labels={"malaria_deaths": "Malaria Deaths"},
 )
@@ -436,7 +436,7 @@ Trend of malaria deaths over the years from 1990 to 2006 in selected countries s
 
 In 1990, the global malaria deaths map shows concentrated mortality rates primarily in sub-Saharan Africa, with moderate impacts in parts of South Asia and Southeast Asia. By 2006, the map shows a significant reduction in malaria deaths in most regions outside Africa. Sub-Saharan Africa remains a major hotspot with persistent high mortality rates. This comparison reveals a geographical shift in global malaria burden.
 
-# Under Five vs Malaria Mortality Ratio
+# Under Five & Malaria Mortality Trends
 
 ## Row 1 {height=20%}
 

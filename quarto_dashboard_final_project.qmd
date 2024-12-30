@@ -172,7 +172,7 @@ for i, country in enumerate(selected_countries):
 # Update layout for aesthetics and adjustments
 fig_u5trend.update_layout(
     title=dict(
-        text="Population Under Five Trend with Projections",
+        text="Population Under Five Trend with Projections For Five Selected Countries",
         font=dict(size=22, color="#2E3B4E"),
         x=0.5,
     ),

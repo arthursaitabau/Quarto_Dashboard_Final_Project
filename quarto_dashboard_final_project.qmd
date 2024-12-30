@@ -1,0 +1,487 @@
+---
+title: "Under-Five Population vs. Malaria Mortality Analysis"
+author: "Arthur KS Ng'etich"
+format: 
+  dashboard:
+    theme: sandstone
+execute:
+   echo: false
+   output: false
+---
+
+```{python}
+# Import necessary libraries
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import numpy as np
+import itables
+
+# Load Under Fives and Malaria Deaths datasets
+malaria_df = pd.read_csv("data/malaria_deaths_per_100000_reported.csv").melt(
+    id_vars=["country"], var_name="year", value_name="malaria_deaths"
+)
+u5_total_pop_df = pd.read_csv("data/u5pop.csv").melt(
+    id_vars=["country"], var_name="year", value_name="total_pop_under5"
+)
+
+
+# Clean and preprocess datasets
+def convert_to_numeric(value):
+    if isinstance(value, str):
+        if value.endswith("k"):
+            return float(value.replace("k", "")) * 1_000
+        elif value.endswith("M"):
+            return float(value.replace("M", "")) * 1_000_000
+    return float(value)
+
+
+u5_total_pop_df["total_pop_under5"] = u5_total_pop_df["total_pop_under5"].apply(
+    convert_to_numeric
+)
+malaria_df["year"] = pd.to_numeric(malaria_df["year"], errors="coerce")
+u5_total_pop_df["year"] = pd.to_numeric(u5_total_pop_df["year"], errors="coerce")
+malaria_df["malaria_deaths"] = pd.to_numeric(
+    malaria_df["malaria_deaths"], errors="coerce"
+)
+
+# Value Box Metrics (Under-Five Population)
+data_2006 = u5_total_pop_df[u5_total_pop_df["year"] == 2006]
+global_total_under5_2006 = data_2006["total_pop_under5"].sum()
+highest_under5_country_2006 = data_2006.sort_values(
+    by="total_pop_under5", ascending=False
+).iloc[0]
+highest_under5_country_name = highest_under5_country_2006["country"]
+highest_under5_country_value = highest_under5_country_2006["total_pop_under5"]
+average_under5_2006 = data_2006["total_pop_under5"].mean()
+
+# Value Box Metrics (Malaria Mortality)
+highest_malaria_country = malaria_df.sort_values(
+    by="malaria_deaths", ascending=False
+).iloc[0]
+non_zero_malaria_deaths = malaria_df[malaria_df["malaria_deaths"] > 0]
+lowest_malaria_country = non_zero_malaria_deaths.sort_values(
+    by="malaria_deaths", ascending=True
+).iloc[0]
+
+# Merge datasets for relationship analysis
+merged_df = pd.merge(malaria_df, u5_total_pop_df, on=["country", "year"], how="inner")
+merged_df = merged_df.dropna(subset=["malaria_deaths", "total_pop_under5"])
+merged_df.to_csv("outputs/malaria_underfive_dataset.csv", index=False)
+
+# Value Box Metrics (Under 5 Pop vs Malaria Mortality)
+# Filter the merged dataset for the year 2006
+merged_df_2006 = merged_df[merged_df["year"] == 2006]
+
+# Calculate the malaria deaths ratio for 2006
+merged_df_2006["malaria_deaths_ratio"] = (
+    merged_df_2006["malaria_deaths"] / merged_df_2006["total_pop_under5"]
+)
+
+# Country with the highest malaria deaths ratio in 2006
+highest_malaria_deaths_ratio_2006 = merged_df_2006.loc[
+    merged_df_2006["malaria_deaths_ratio"].idxmax()
+]
+
+# Country with the lowest non-zero malaria deaths ratio in 2006
+filtered_df_2006 = merged_df_2006[
+    (merged_df_2006["malaria_deaths_ratio"] > 0)
+    & (merged_df_2006["malaria_deaths_ratio"].notnull())  # Exclude any NaN values
+]
+if not filtered_df_2006.empty:
+    lowest_malaria_deaths_ratio_2006 = filtered_df_2006.loc[
+        filtered_df_2006["malaria_deaths_ratio"].idxmin()
+    ]
+else:
+    lowest_malaria_deaths_ratio_2006 = None
+
+# Viz 1 Under Five Population Percent Trend
+
+# Selected countries
+selected_countries = ["Zambia", "Namibia", "Lao", "Vanuatu", "Cambodia"]
+select_countries_under5_pop_df = u5_total_pop_df[
+    u5_total_pop_df["country"].isin(selected_countries)
+]
+
+# Create a new column to flag projected data (year > 2024)
+select_countries_under5_pop_df["is_projected"] = (
+    select_countries_under5_pop_df["year"] > 2024
+)
+
+# Simulate uncertainty bounds for visualization
+select_countries_under5_pop_df["upper_bound"] = select_countries_under5_pop_df[
+    "total_pop_under5"
+] + np.random.uniform(0.3, 0.7, len(select_countries_under5_pop_df))
+select_countries_under5_pop_df["lower_bound"] = select_countries_under5_pop_df[
+    "total_pop_under5"
+] - np.random.uniform(0.3, 0.7, len(select_countries_under5_pop_df))
+
+# Split historical and projected data
+historical_data = select_countries_under5_pop_df[
+    ~select_countries_under5_pop_df["is_projected"]
+]
+projected_data = select_countries_under5_pop_df[
+    select_countries_under5_pop_df["is_projected"]
+]
+
+# Initialize figure
+fig_u5trend = go.Figure()
+
+# Color palette
+colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]  # Colors for countries
+
+# Add data for each country
+for i, country in enumerate(selected_countries):
+    # Filter historical and projected data
+    hist_data = historical_data[historical_data["country"] == country]
+    proj_data = projected_data[projected_data["country"] == country]
+
+    # Add historical line with ribbon (uncertainty bounds)
+    fig_u5trend.add_trace(
+        go.Scatter(
+            x=hist_data["year"],
+            y=hist_data["total_pop_under5"],
+            mode="lines",
+            name=f"{country} (Historical)",
+            line=dict(color=colors[i], width=3),
+        )
+    )
+    fig_u5trend.add_trace(
+        go.Scatter(
+            x=hist_data["year"].tolist() + hist_data["year"].tolist()[::-1],
+            y=hist_data["upper_bound"].tolist()
+            + hist_data["lower_bound"].tolist()[::-1],
+            fill="toself",
+            fillcolor=f"rgba{tuple(int(colors[i][j:j+2], 16) for j in (1, 3, 5)) + (0.1,)}",  # Transparent fill
+            line=dict(color="rgba(255,255,255,0)"),
+            showlegend=False,
+        )
+    )
+
+    # Add projected trend as a dotted line
+    fig_u5trend.add_trace(
+        go.Scatter(
+            x=proj_data["year"],
+            y=proj_data["total_pop_under5"],
+            mode="lines",
+            name=f"{country} (Projected)",
+            line=dict(color=colors[i], dash="dot", width=3),
+        )
+    )
+
+# Update layout for aesthetics and adjustments
+fig_u5trend.update_layout(
+    title=dict(
+        text="Population Under Five Trend with Projections",
+        font=dict(size=22, color="#2E3B4E"),
+        x=0.5,
+    ),
+    xaxis=dict(
+        title="Year",
+        tickmode="linear",  # Show years at fixed intervals
+        dtick=10,  # Intervals of 10 years
+        showgrid=True,
+        gridcolor="lightgrey",
+    ),
+    yaxis=dict(title="Population Under Five", showgrid=True, gridcolor="lightgrey"),
+    plot_bgcolor="white",
+    margin=dict(t=80, l=50, r=50, b=120),  # Increased bottom margin for space
+)
+
+# Top Ten Countries Based on Under Five Population in 2006
+latest_year = 2006
+latest_data = u5_total_pop_df[u5_total_pop_df["year"] == latest_year]
+top_10_countries = latest_data.nlargest(10, "total_pop_under5")
+top_10_countries["formatted_population"] = top_10_countries["total_pop_under5"].apply(
+    lambda x: f"{x/1e6:.1f}M" if x >= 1e6 else f"{x/1e3:.1f}K"
+)
+fig_tp10 = px.bar(
+    top_10_countries,
+    x="total_pop_under5",
+    y="country",
+    orientation="h",
+    title=f"Top 10 Countries by Under-Five Population in {latest_year}",
+    labels={"total_pop_under5": "Under-Five Population", "country": "Country"},
+    text="formatted_population",
+    color="total_pop_under5",
+    color_continuous_scale="Blues",
+)
+
+fig_tp10.update_layout(
+    xaxis_title="Under-Five Population",
+    yaxis_title="Country",
+    plot_bgcolor="white",
+    title_font=dict(size=20),
+    xaxis=dict(showgrid=True, gridcolor="lightgrey"),
+    yaxis=dict(showgrid=False),
+    margin=dict(t=60, l=150, r=50, b=50),  # Adjust for long country names
+    showlegend=False,
+)
+
+# Viz 2 Malaria Mortality Trend
+
+# Malaria Mortality Area Chart
+selected_countries = ["Zambia", "Namibia", "Lao", "Vanuatu", "Cambodia"]
+select_countries_malaria_deaths = malaria_df[
+    malaria_df["country"].isin(selected_countries)
+]
+malaria_trend_area = px.area(
+    select_countries_malaria_deaths,
+    x="year",
+    y="malaria_deaths",
+    color="country",
+    title="Malaria Deaths Trend Over Years for Selected Countries",
+    line_group="country",
+    markers=True,
+)
+
+malaria_trend_area.update_layout(
+    title=dict(font=dict(size=20, color="#2E3B4E"), x=0.5),
+    xaxis=dict(title="Year", tickangle=-45, gridcolor="lightgrey"),
+    yaxis=dict(title="Malaria Deaths", gridcolor="lightgrey"),
+    plot_bgcolor="#FAFAFA",
+    paper_bgcolor="white",
+    showlegend=False,
+    margin=dict(t=70, l=50, r=50, b=100),  # Increased bottom margin to create space
+)
+
+# Geographical distribution of Malaria Mortality
+
+# Create an animated choropleth map
+malaria_choropleth = px.choropleth(
+    malaria_df,
+    locations="country",
+    locationmode="country names",
+    color="malaria_deaths",
+    hover_name="country",
+    animation_frame="year",  # Add animation by year
+    title="Global Malaria Deaths by Country Over Time",
+    color_continuous_scale="Blues",
+    labels={"malaria_deaths": "Malaria Deaths"},
+)
+
+# Update layout for aesthetics
+malaria_choropleth.update_layout(
+    title=dict(font=dict(size=20, color="#2E3B4E"), x=0.5),
+    geo=dict(
+        showframe=False,  # Hide map frame
+        showcoastlines=True,  # Show coastlines
+        coastlinecolor="lightgrey",
+        projection_type="natural earth",  # Natural Earth projection
+    ),
+    margin=dict(t=70, l=50, r=50, b=50),  # Adjust margins for better appearance
+)
+
+# Viz 3 Under Fives vs Malaria Mortality
+
+# Merge datasets on "country" and "year"
+merged_df = pd.merge(malaria_df, u5_total_pop_df, on=["country", "year"], how="inner")
+
+# Drop rows with missing values
+merged_df = merged_df.dropna(subset=["malaria_deaths", "total_pop_under5"])
+
+# Filter for the range between 1990 and 2006
+filtered_df = merged_df[(merged_df["year"] >= 1990) & (merged_df["year"] <= 2006)]
+
+# Calculate 'population_size' for bubble size and scale for visibility
+bubble_scaling_factor = 300  # Increase this factor to make bubbles larger
+filtered_df["population_size"] = (
+    filtered_df["total_pop_under5"] / 1e6 * bubble_scaling_factor
+)
+
+# Determine the minimum value for malaria deaths
+y_min = filtered_df["malaria_deaths"].min() * 0.9
+
+# Create an animated scatter plot with logarithmic scales, larger bubbles, and country labels
+fig_animated = px.scatter(
+    filtered_df,
+    x="total_pop_under5",  # X-axis: Total under-five population
+    y="malaria_deaths",  # Y-axis: Malaria deaths
+    size="population_size",  # Larger bubble sizes
+    color="country",  # Unique color for each country
+    hover_name="country",  # Show country name on hover
+    animation_frame="year",  # Animate by year
+    animation_group="country",  # Group by country for smooth transitions
+    title="Under-Five Population vs Malaria Deaths (1990-2006, Logarithmic Scales)",
+    labels={
+        "total_pop_under5": "Total Population Under-Five (Log Scale)",
+        "malaria_deaths": "Malaria Deaths (Log Scale)",
+        "population_size": "Bubble Size (Scaled)",
+    },
+    template="plotly_white",
+    log_x=True,  # Apply logarithmic scale to the X-axis
+    log_y=True,  # Apply logarithmic scale to the Y-axis
+    text="country",  # Add country names as text on bubbles
+    size_max=50,  # Increase maximum bubble size
+)
+
+# Slow down the animation speed
+fig_animated.layout.updatemenus[0].buttons[0].args[1]["frame"][
+    "duration"
+] = 1500  # 1.5 seconds per frame
+
+fig_animated.update_layout(showlegend=False)
+
+# Update layout for improved scaling and readability
+fig_animated.update_layout(
+    xaxis=dict(
+        title="Total Population Under-Five (Log Scale)",
+        gridcolor="lightgrey",
+    ),
+    yaxis=dict(
+        title="Malaria Deaths (Log Scale)",
+        gridcolor="lightgrey",
+    ),
+    legend=dict(title="Country", orientation="v", y=0.5, x=1.1, xanchor="left"),
+    margin=dict(t=70, l=50, r=50, b=50),
+    plot_bgcolor="white",
+    font=dict(family="Arial", size=12),
+)
+
+# Improve text (country names) visibility
+fig_animated.update_traces(
+    textposition="top center",  # Place country names above bubbles
+    textfont=dict(size=9),  # Make country names small but readable
+)
+```
+
+# Under Five Population
+
+## Row 1 {height=20%}
+
+::: {.valuebox icon="globe" color="#4682B4" title="Global Total Under-Five Pop in 2006"}
+`{python} f"{global_total_under5_2006/1e6:.1f}M"`
+:::
+
+::: {.valuebox icon="geo-alt" color="#87CEEB" title="Country with Highest Under-Five Pop in 2006"}
+`{python} highest_under5_country_name`
+
+`{python} f"{highest_under5_country_value/1e6:.1f}M"`
+:::
+
+::: {.valuebox icon="bar-chart-steps" color="#1E90FF" title="Average Under-Five Pop in 2006"}
+`{python} f"{average_under5_2006/1e6:.1f}M"`
+:::
+
+## Row 2 {height=80%}
+
+### {.tabset width=50%}
+
+#### Under-Five Trend Over Time
+
+```{python}
+# | output: true
+fig_u5trend
+```
+
+#### Description
+
+*The plot illustrates the historical and projected trends in the population under five across Zambia, Namibia, Lao, Cambodia, and Vanuatu from 1950 to 2100. Zambia shows the highest and continuously rising trend, indicating sustained population growth, while Cambodia and Lao display stable or declining projections. Namibia and Vanuatu have small and relatively stable under-five populations. The differences reflect varying fertility rates, healthcare systems, and socio-economic conditions, emphasizing the need for tailored policies to address the implications for public health, education, and economic planning in each country.*
+
+### {.tabset width=50%}
+
+#### Top10 Under-Five Population in 2006
+
+```{python}
+# | output: true
+fig_tp10
+```
+
+#### Description
+
+*This bar chart highlights the top 10 countries by under-five population in 2006, with India leading significantly at 130 million, followed by China at 81.9 million. Other populous countries such as Nigeria, Pakistan, Indonesia, and the USA have under-five populations ranging from 20 to 25 million, reflecting their large overall populations and varying fertility rates. Bangladesh, Brazil, Ethiopia, and Mexico have smaller but substantial under-five populations, ranging from 11.4 to 16.1 million. These figures underline the demographic pressure on countries with high under-five populations to invest in child healthcare, nutrition, and early childhood education to support sustainable development.*
+
+# Malaria Mortality
+
+## Row 1 {height=20%}
+
+::: {.valuebox icon="arrow-up-right-circle-fill" color="#FF4500" title="Highest Malaria Deaths"}
+
+`{python} int(highest_malaria_country["malaria_deaths"])` 
+
+`{python} highest_malaria_country["country"]` 
+
+:::
+
+::: {.valuebox icon="arrow-down-right-circle-fill" color="#FFD700" title="Lowest Malaria Deaths"} 
+
+`{python} int(lowest_malaria_country["malaria_deaths"])` 
+
+`{python} lowest_malaria_country["country"]` 
+
+:::
+
+## Row 2 {height=60%}
+
+### {width=50%}
+```{python}
+# | output: true
+malaria_trend_area
+```
+
+### {width=50%}
+
+```{python}
+# | output: true
+malaria_choropleth
+```
+
+## Row 3 {height=20%}
+
+### {width=50%}
+
+Trend of malaria deaths over the years from 1990 to 2006 in selected countries shows Zambia experienced the highest fluctuations, with a notable spike in deaths around 2000 before gradually declining. Namibia also showed a significant increase during the late 1990s, followed by a downward trend. Cambodia, Lao, and Vanuatu maintained consistently lower malaria death rates over the years compared to Zambia and Namibia. These trends reflect varying malaria burdens and possibly the impact of interventions, healthcare infrastructure, and environmental factors influencing malaria mortality in these countries.
+
+### {width=50%}
+
+In 1990, the global malaria deaths map shows concentrated mortality rates primarily in sub-Saharan Africa, with moderate impacts in parts of South Asia and Southeast Asia. By 2006, the map shows a significant reduction in malaria deaths in most regions outside Africa. Sub-Saharan Africa remains a major hotspot with persistent high mortality rates. This comparison reveals a geographical shift in global malaria burden.
+
+# Under Five vs Malaria Mortality Ratio
+
+## Row 1 {height=20%}
+
+::: {.valuebox icon="box-arrow-in-up" color="#008080" title="Highest Malaria Deaths Ratio"} 
+
+`{python} f"{highest_malaria_deaths_ratio_2006['malaria_deaths_ratio']:.2%}"`
+
+`{python} highest_malaria_deaths_ratio_2006["country"]`
+
+:::
+
+::: {.valuebox icon="box-arrow-down" color="#FFD700" title="Lowest Malaria Deaths Ratio"}
+
+`{python} f"{lowest_malaria_deaths_ratio_2006['malaria_deaths_ratio']:.2%}"`
+
+`{python} lowest_malaria_deaths_ratio_2006["country"]`
+
+:::
+
+## Row 2 {height=70%}
+
+```{python}
+# | output: true
+fig_animated
+```
+
+## Row 3 {height=10%}
+
+Between 1990 and 2006, the scatter plot reveals a significant reduction in malaria deaths globally, even among countries with large under-five populations such as China and Nigeria. In 1990, countries including Nigeria showed high under-five populations and moderate malaria deaths, while smaller nations such as Vanuatu exhibited minimal malaria deaths. By 2006, malaria death rates declined notably across most countries.
+
+# DATA DOWNLOAD
+
+```{python}
+# | output: true
+itables.show(
+    merged_df,
+    caption="Malaria Mortality and UnderFive Population Dataset",
+    buttons=["csvHtml5"],
+)
+```
+
+# ABOUT
+
+The data for this Python Basics & Beyond final project was sourced from [Gapminder’s data repository](https://www.gapminder.org/data/). The analysis focused on two key indicators: the total number of children under five years old and the total number of malaria deaths reported annually between 1990 and 2006. Gapminder Foundation, a non-profit organization, supports sustainable global development and the United Nations Millennium Development Goals by enhancing the understanding and use of data on social, economic, and environmental progress.
+
+**Watch this clip by World Health Organization on Malaria burden in Children:**
+
+<iframe width="560" height="315" src="https://www.youtube.com/embed/ste2gIgLsNg" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
